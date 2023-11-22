@@ -1,0 +1,190 @@
+import pandas as pd
+import tkinter as tk
+from tkinter import filedialog, simpledialog
+from PIL import Image, ImageTk
+import os
+
+class OptionDialog(tk.Toplevel):
+    def __init__(self, parent, title, image_path):
+        super().__init__(parent)
+        self.parent = parent
+        self.title(title)
+        self.image_path = image_path
+        self.result = None
+        self.geometry("400x300")  # Adjust the size as needed
+        self.protocol("WM_DELETE_WINDOW", self.close_dialog)  # Handle window close
+
+        self.body()
+
+    def body(self):
+        # Load and display the image at the top center
+        image = Image.open(self.image_path)
+        # Resize the image to 80% of the original size using Lanczos resampling
+        image = image.resize((int(image.width * 1), int(image.height * 1)), Image.LANCZOS)
+        photo = ImageTk.PhotoImage(image)
+
+        label = tk.Label(self, image=photo)
+        label.image = photo
+        label.pack(pady=10)
+
+        tk.Label(self, text="Choose processing option:", font=("Helvetica", 12)).pack()
+
+        button_frame = tk.Frame(self)
+        button_frame.pack(pady=10)
+
+        single_file_button = tk.Button(button_frame, text="Single File", command=self.single_file, font=("Helvetica", 15))
+        folder_button = tk.Button(button_frame, text="Folder", command=self.folder, font=("Helvetica", 15))
+        close_button = tk.Button(button_frame, text="Close", command=self.close_dialog, font=("Helvetica", 15))
+
+        single_file_button.pack(side=tk.LEFT, padx=50)
+        folder_button.pack(side=tk.LEFT, padx=50)
+        close_button.pack(side=tk.LEFT, padx=50)
+
+    def close_dialog(self):
+        self.result = None
+        self.destroy()
+
+    def single_file(self):
+        self.result = 'file'
+        self.destroy()  # Close the dialog
+
+    def folder(self):
+        self.result = 'folder'
+        self.destroy()  # Close the dialog
+
+def select_source(root):
+    root.withdraw()  # Hide the main window
+
+    while True:
+        image_path = r"C:\Users\pbento\Pictures\Smartling2TradeWind.png"  # Replace with the actual path to your image
+        dialog = OptionDialog(root, "Smartling to Tradewind", image_path)
+        dialog.wait_window()  # Wait for the dialog to be closed
+        option = dialog.result
+
+        if option and option.lower() in ['file', 'folder']:
+            if option.lower() == 'file':
+                source_file_path = filedialog.askopenfilename(title="Select Source CSV File", filetypes=[("CSV files", "*.csv")])
+                return [source_file_path] if source_file_path else []
+            elif option.lower() == 'folder':
+                source_folder_path = filedialog.askdirectory(title="Select Source Folder")
+                return [os.path.join(source_folder_path, file) for file in os.listdir(source_folder_path) if file.endswith(".csv")]
+        elif option is None:
+            # User closed the dialog, exit the loop
+            return []
+        else:
+            print("Invalid input. Please try again.")
+
+def process_csv_files(file_paths):
+    for file_path in file_paths:
+        process_csv(file_path)
+
+def process_csv(source_file_path):
+    file_name = os.path.basename(source_file_path)
+    target_file_name = "TW_" + file_name
+    target_file_path = os.path.join(os.path.dirname(source_file_path), target_file_name)
+
+    try:
+        # Creating a DataFrame from the source data
+        df = pd.read_csv(source_file_path)
+
+        # Check if required columns exist
+        required_columns = ['Target Language', 'Fuzzy Range Code', 'Word Count']
+        if not set(required_columns).issubset(df.columns):
+            print(f"Skipping {file_name}. Required columns are missing.")
+            return
+
+        # Extracting relevant columns
+        df_extracted = df[required_columns]
+
+        # Pivoting the DataFrame to create the desired tabular format
+        df_pivoted = df_extracted.pivot_table(index='Target Language', columns='Fuzzy Range Code', values='Word Count', fill_value=0)
+
+        # Check if '50% - 74%' column exists, if not add it with default values
+        if '50% - 74%' not in df_pivoted.columns:
+            df_pivoted['50% - 74%'] = 0
+
+        # Rounding the values to the nearest whole number
+        df_pivoted = df_pivoted.round(0).astype(int)
+
+        # Adding a "Total" column
+        df_pivoted['Total'] = df_pivoted.sum(axis=1)
+
+        # Rename columns and reorder them
+        df_pivoted.rename(columns={
+            'MATCH_0.0TO74.9': 'No Match',
+            'MATCH_75.0TO84.9': '75% - 84%',
+            'MATCH_85.0TO94.9': '85% - 94%',
+            'MATCH_95.0TO99.9': '95% - 99%',
+            'MATCH_100.0TO100.0': '100% Matches',
+            'SMARTMATCH': 'XTranslated',
+            'REPETITIONS': 'Repetitions'
+        }, inplace=True)
+
+        # Manually reorder the columns based on your desired order
+        desired_order = [
+            'XTranslated', 'Repetitions', '100% Matches', '95% - 99%',
+            '85% - 94%', '75% - 84%', '50% - 74%', 'No Match', 'Total'
+        ]
+
+        # Reorder the columns
+        df_pivoted = df_pivoted[desired_order]
+
+        # Add 'Target Language' as the first column
+        df_pivoted.reset_index(inplace=True)
+
+        # Create the first two lines with the desired format
+        header_line1 = [',,,XTranslated,,,,Repetitions,,,,100% Matches,,,,95% - 99%,,,,85% - 94%,,,,75% - 84%,,,,50% - 74%,,,,No Match,,,,Total,,,']
+        header_line2 = ['File,Tagging Errors,Chars/Word,Segments,Words,Placeables,Percent,Segments,Words,Placeables,Percent,Segments,Words,Placeables,Percent,Segments,Words,Placeables,Percent,Segments,Words,Placeables,Percent,Segments,Words,Placeables,Percent,Segments,Words,Placeables,Percent,Segments,Words,Placeables,Percent,Segments,Words,Placeables,Percent,Segments,Words,Placeables,Characters']
+
+        # Convert the entire DataFrame to strings to avoid decimal places
+        df_pivoted = df_pivoted.astype(str)
+
+        # Format the word count values
+        df_pivoted.iloc[:, 1:] = df_pivoted.iloc[:, 1:].apply(lambda col: col.str.replace(',', ''), axis=1)
+
+        # Concatenate the headers with the DataFrame
+        df_combined = pd.concat([pd.DataFrame(header_line1), pd.DataFrame(header_line2), df_pivoted])
+
+        # Convert the DataFrame to a string
+        df_combined_str = df_combined.to_csv(index=False, header=False)
+
+        # Replace commas in rows starting from the third row with ",,,,,"
+        df_combined_str = '\n'.join(
+            [row[1:5] + row[5:].replace(',', ',,,,') if index >= 2 else row for index, row in
+            enumerate(df_combined_str.split('\n'))])
+
+        # Replace double quotes with empty string in the entire string
+        df_combined_str = df_combined_str.replace('"', '')
+
+        # Remove extra carriage return and line feed characters from every row
+        df_combined_str = '\n'.join([row.strip() for row in df_combined_str.split('\n')])
+
+        # Save the modified string to the target location
+        with open(target_file_path, 'w') as file:
+            # Remove the last 10 characters only from the first row
+            df_combined_str_lines = df_combined_str.split('\n')
+            df_combined_str_lines[0] = df_combined_str_lines[0][:-10]
+            df_combined_str = '\n'.join(df_combined_str_lines)
+            file.write(df_combined_str)
+
+        print(f"Exported to {target_file_path}")
+
+    except Exception as e:
+        print(f"Error processing {file_name}: {e}")
+
+if __name__ == "__main__":
+    # Create the root window only once
+    root = tk.Tk()
+
+    while True:
+        # Ask the user whether to process a single file or a whole folder
+        source_paths = select_source(root)
+
+        if not source_paths:
+            print("No source selected. Exiting.")
+            break  # Exit the main loop if the user closes the dialog
+        else:
+            process_csv_files(source_paths)
+
+    # Close the root window after processing
+    root.destroy()

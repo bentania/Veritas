@@ -1,6 +1,6 @@
 import pandas as pd
 import tkinter as tk
-from tkinter import filedialog, simpledialog
+from tkinter import filedialog, simpledialog, messagebox
 from PIL import Image, ImageTk
 import os
 
@@ -26,6 +26,10 @@ class OptionDialog(tk.Toplevel):
         label = tk.Label(self, image=photo)
         label.image = photo
         label.pack(pady=10)
+
+        # Add version label at the lower right corner using pack
+        version_label = tk.Label(self, text="Version 2.2 - Nov 2023", font=("Helvetica", 5))
+        version_label.pack(side='bottom', anchor='se')  # Place at the bottom right
 
         tk.Label(self, text="Choose processing option:", font=("Helvetica", 12)).pack()
 
@@ -56,7 +60,7 @@ def select_source(root):
     root.withdraw()  # Hide the main window
 
     while True:
-        image_path = r"C:\Users\pbento\Pictures\Smartling2TradeWind.png"  # Replace with the actual path to your image
+        image_path = os.path.expanduser(r"~\Pictures\Smartling2TradeWind.png")
         dialog = OptionDialog(root, "Smartling to Tradewind", image_path)
         dialog.wait_window()  # Wait for the dialog to be closed
         option = dialog.result
@@ -74,9 +78,31 @@ def select_source(root):
         else:
             print("Invalid input. Please try again.")
 
+def display_success_message(files):
+    success_message = "Conversion successful for the following files:\n\n"
+    success_message += "\n".join([f"{i + 1}. {os.path.basename(file)}" for i, file in enumerate(files)])
+
+    # Calculate the width based on the length of the longest line
+    max_line_length = max(len(line) for line in success_message.split('\n'))
+    window_width = max(400, max_line_length * 8)  # Set a minimum width of 400 pixels
+
+    success_dialog = tk.Toplevel()
+    success_dialog.title("Conversion Successful")
+    success_dialog.geometry(f"{window_width}x300")  # Fixed height of 300 pixels
+
+    tk.Label(success_dialog, text=success_message, font=("Helvetica", 12), anchor="w", justify="left").pack()
+
+
 def process_csv_files(file_paths):
+    successful_files = []
+
     for file_path in file_paths:
-        process_csv(file_path)
+        success = process_csv(file_path)
+        if success:
+            successful_files.append(file_path)
+
+    if successful_files:
+        display_success_message(successful_files)
 
 def process_csv(source_file_path):
     file_name = os.path.basename(source_file_path)
@@ -84,6 +110,7 @@ def process_csv(source_file_path):
     target_file_path = os.path.join(os.path.dirname(source_file_path), target_file_name)
 
     try:
+
         # Creating a DataFrame from the source data
         df = pd.read_csv(source_file_path)
 
@@ -168,9 +195,11 @@ def process_csv(source_file_path):
             file.write(df_combined_str)
 
         print(f"Exported to {target_file_path}")
+        return True
 
     except Exception as e:
         print(f"Error processing {file_name}: {e}")
+        return False
 
 if __name__ == "__main__":
     # Create the root window only once
